@@ -24,6 +24,8 @@ class AutoEncoder(chainer.Chain):
             y = self.__call__(x)
             self.rec_loss = F.mean_squared_error(y, x)
             self.loss = sigmoid_cross_entropy(y, x)
+            # FIXME: sigmoid is applied twice
+            # TODO: impl binary_cross_entropy for output of sigmoid
             return self.loss
         return lf
 
@@ -111,16 +113,52 @@ class DeepAutoEncoder(AutoEncoder):
         return F.sigmoid(self.call_layers(z, last))
 
 
-class ConvolutionalAutoEncoder(DeepAutoEncoder):
+class ConvolutionalAutoEncoder(AutoEncoder):
+    """
+    Conv-AE structure noted in Keras's tutorial:
 
-    def init_layers(self):
-        raise NotImplementedError()
+    x = Convolution2D(16, 3, 3, activation='relu', border_mode='same')(input_img)
+    x = MaxPooling2D((2, 2), border_mode='same')(x)
+    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(x)
+    x = MaxPooling2D((2, 2), border_mode='same')(x)
+    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(x)
+    encoded = MaxPooling2D((2, 2), border_mode='same')(x)
 
-        ns = self.calc_layer_dims()
-        for i in range(len(ns)-1):
-            label = self.label % i
-            param = L.Linear(ns[i], ns[i+1])
-            self.add_link(label, param)
+    # at this point the representation is (8, 4, 4) i.e. 128-dimensional
+
+    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(encoded)
+    x = UpSampling2D((2, 2))(x)
+    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(x)
+    x = UpSampling2D((2, 2))(x)
+    x = Convolution2D(16, 3, 3, activation='relu')(x)
+    x = UpSampling2D((2, 2))(x)
+    decoded = Convolution2D(1, 3, 3, activation='sigmoid', border_mode='same')(x)
+    """
+
+    def __init__(self, n_in, n_units):
+        super(ConvolutionalAutoEncoder, self).__init__(
+            # encoder
+            conv1=L.Convolution2D(1, 16, 3),
+            conv2=L.Convolution2D(8, 8, 3),
+            conv3=L.Convolution2D(8, 8, 3),
+            # decoder
+            conv4=L.Convolution2D(8, 8, 3),
+            conv5=L.Convolution2D(8, 8, 3),
+            conv6=L.Convolution2D(8, 16, 3),
+        )
+        self.n_depth = 3
+
+    def encode(self, x):
+        for n in range(1, self.n_depth + 1):
+            conv = self["conv%" % n]
+            x = F.max_pooling_2d(F.relu(conv(x)), 2)
+        return x
+
+    def decode(self, z):
+        for n in range(self.n_depth + 1, self.n_depth * 2):
+            conv = self["conv%" % n]
+            z = F.unpooling_2d(F.relu(conv(z)), 2)
+        return F.sigmoid(self["conv%" % (self.n_depth * 2)](z))
 
 
 class VAE(AutoEncoder):
