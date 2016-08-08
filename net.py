@@ -2,49 +2,10 @@ import doctest
 
 import chainer
 import chainer.functions as F
-from chainer.functions.loss.vae import gaussian_kl_divergence
 import chainer.links as L
+from chainer.functions.loss.vae import gaussian_kl_divergence
 
-import numpy
-from chainer import cuda
-from chainer.utils import type_check
-
-
-class SigmoidCrossEntropy(chainer.function.Function):
-
-    def __init__(self, use_cudnn=True, normalize=True):
-        self.use_cudnn = use_cudnn
-        self.normalize = normalize
-
-    def check_type_forward(self, in_types):
-        type_check.expect(in_types.size() == 2)
-
-        x_type, t_type = in_types
-        type_check.expect(
-            x_type.dtype == numpy.float32,
-            t_type.dtype == numpy.float32,
-            x_type.shape == t_type.shape
-        )
-
-    def forward(self, inputs):
-        xp = cuda.get_array_module(*inputs)
-        x, t = inputs
-        # stable computation of the cross entropy.
-        loss = -xp.sum((x * (t - x) - xp.log1p(xp.exp(-xp.abs(x)))))
-        # loss = -xp.sum(t * xp.log(x) + (1 - t) * xp.log(1 - x))
-        return loss,
-
-    def backward(self, inputs, grad_outputs):
-        xp = cuda.get_array_module(*inputs)
-        x, t = inputs
-        gloss = grad_outputs[0]
-        y, = F.Sigmoid(self.use_cudnn).forward((x,))
-        gx = gloss * (y - t)
-        return gx, None
-
-
-def sigmoid_cross_entropy(x, t, use_cudnn=True, normalize=True):
-    return SigmoidCrossEntropy(use_cudnn, normalize)(x, t)
+from utils.functions import sigmoid_cross_entropy
 
 
 class AutoEncoder(chainer.Chain):
@@ -82,7 +43,19 @@ class SimpleAutoEncoder(AutoEncoder):
     def decode(self, z):
         return F.sigmoid(self.l2(z))
 
+    
+class SparseAutoEncoder(SimpleAutoEncoder):
 
+    def get_loss_func(self, l1=0.01, l2=0.0, *args, **kwargs):
+        from utils import functions
+        def lf(x):
+            y = self.__call__(x)
+            self.rec_loss = F.mean_squared_error(y, x)
+            self.loss = sigmoid_cross_entropy(y, x) + functions.l1_norm(y) * l1
+            return self.loss
+        return lf
+
+            
 class DeepAutoEncoder(AutoEncoder):
 
     def __init__(self, n_in, n_units=32, n_depth=3):
@@ -141,12 +114,8 @@ class DeepAutoEncoder(AutoEncoder):
 class ConvolutionalAutoEncoder(DeepAutoEncoder):
 
     def init_layers(self):
-        """
-        :return: Linear layers from self.dims
-        >>> dae = DeepAutoEncoder(784, 32, 2)
-        >>> [p.data.shape for p in dae.params()]
-        [(64, 784), (64,), (32, 64), (32,), (64, 32), (64,), (784, 64), (784,)]
-        """
+        raise NotImplementedError()
+
         ns = self.calc_layer_dims()
         for i in range(len(ns)-1):
             label = self.label % i
