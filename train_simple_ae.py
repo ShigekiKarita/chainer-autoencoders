@@ -1,12 +1,8 @@
 #!/usr/bin/env python
-"""Chainer example: train a VAE on MNIST
-"""
-
 from __future__ import print_function
 
 import numpy
 import chainer
-import six
 from chainer import optimizers
 
 
@@ -18,14 +14,14 @@ def learning_loop(xp, dataset, args, model, optimizer):
     x_test, y_test = test._datasets
     N_test = y_test.size
 
-    for epoch in six.moves.range(1, n_epoch + 1):
+    for epoch in range(1, n_epoch + 1):
         print('epoch', epoch)
 
         # training
         perm = numpy.random.permutation(N)
         sum_loss = 0       # total loss
         sum_rec_loss = 0   # reconstruction loss
-        for i in six.moves.range(0, N, batchsize):
+        for i in range(0, N, batchsize):
             x = chainer.Variable(xp.asarray(x_train[perm[i:i + batchsize]]))
             optimizer.update(model.get_loss_func(), x)
             sum_loss += float(model.loss.data) * len(x.data)
@@ -37,7 +33,7 @@ def learning_loop(xp, dataset, args, model, optimizer):
         # evaluation
         sum_loss = 0
         sum_rec_loss = 0
-        for i in six.moves.range(0, N_test, batchsize):
+        for i in range(0, N_test, batchsize):
             x = chainer.Variable(xp.asarray(x_test[i:i + batchsize]),
                                  volatile='on')
             loss_func = model.get_loss_func(k=10, train=False)
@@ -66,7 +62,9 @@ if __name__ == '__main__':
     # Prepare VAE model, defined in net.py
     # model = net.VAE(784, n_latent, 500)
     # model = net.DeepAutoEncoder(784, n_latent)
-    model = net.SparseAutoEncoder(784, n_latent)
+    # model = net.SparseAutoEncoder(784, n_latent)
+    # model = net.SimpleAutoEncoder(784, n_latent)
+    model = net.ConvolutionalAutoEncoder()
     xp = arguments.set_device(args, model)
 
     # Setup optimizer

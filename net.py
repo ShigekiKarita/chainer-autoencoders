@@ -5,24 +5,31 @@ import chainer.functions as F
 import chainer.links as L
 from chainer.functions.loss.vae import gaussian_kl_divergence
 
-from utils.functions import sigmoid_cross_entropy
+from utils.functions import sigmoid_cross_entropy, up_sampling_2d
 
 
 class AutoEncoder(chainer.Chain):
 
-    def __call__(self, x):
-        return self.decode(self.encode(x))
-
     def encode(self, x):
         pass
 
-    def decode(self, z):
+    def decode_bottleneck(self, z):
         pass
+
+    def decode(self, z):
+        return F.sigmoid(self.decode_bottleneck(z))
+
+    def bottleneck(self, x):
+        return self.decode_bottleneck(self.encode(x))
+
+    def __call__(self, x):
+        return self.decode(self.encode(x))
 
     def get_loss_func(self, *args, **kwargs):
         def lf(x):
-            y = self.__call__(x)
-            self.rec_loss = F.mean_squared_error(y, x)
+            y = self.bottleneck(x)
+            r = F.sigmoid(y)
+            self.rec_loss = F.mean_squared_error(r, x)
             self.loss = sigmoid_cross_entropy(y, x)
             # FIXME: sigmoid is applied twice
             # TODO: impl binary_cross_entropy for output of sigmoid
@@ -39,11 +46,10 @@ class SimpleAutoEncoder(AutoEncoder):
         )
 
     def encode(self, x):
-        h = F.relu(self.l1(x))
-        return h
+        return F.relu(self.l1(x))
 
-    def decode(self, z):
-        return F.sigmoid(self.l2(z))
+    def decode_bottleneck(self, z):
+        return self.l2(z)
 
     
 class SparseAutoEncoder(SimpleAutoEncoder):
@@ -51,8 +57,9 @@ class SparseAutoEncoder(SimpleAutoEncoder):
     def get_loss_func(self, l1=0.01, l2=0.0, *args, **kwargs):
         from utils import functions
         def lf(x):
-            y = self.__call__(x)
-            self.rec_loss = F.mean_squared_error(y, x)
+            y = self.bottleneck(x)
+            r = F.sigmoid(y)
+            self.rec_loss = F.mean_squared_error(r, x)
             self.loss = sigmoid_cross_entropy(y, x) + functions.l1_norm(y) * l1
             return self.loss
         return lf
@@ -98,7 +105,7 @@ class DeepAutoEncoder(AutoEncoder):
             self.add_link(label, param)
 
     def call_layers(self, x, a, b=-1):
-        if (b == -1):
+        if b == -1:
             b = a + 1
         for n in range(a, b):
             x = F.relu(self[self.label % n](x))
@@ -107,10 +114,10 @@ class DeepAutoEncoder(AutoEncoder):
     def encode(self, x):
         return self.call_layers(x, 0, self.n_depth)
 
-    def decode(self, z):
+    def decode_bottleneck(self, z):
         last = self.n_depth * 2 - 1
         z = self.call_layers(z, self.n_depth, last)
-        return F.sigmoid(self.call_layers(z, last))
+        return self.call_layers(z, last)
 
 
 class ConvolutionalAutoEncoder(AutoEncoder):
@@ -135,30 +142,55 @@ class ConvolutionalAutoEncoder(AutoEncoder):
     decoded = Convolution2D(1, 3, 3, activation='sigmoid', border_mode='same')(x)
     """
 
-    def __init__(self, n_in, n_units):
+    def __init__(self, n_in=784):
+        self.n_in_square = int(n_in**0.5)
+        p = 1
+        q = 0
         super(ConvolutionalAutoEncoder, self).__init__(
             # encoder
-            conv1=L.Convolution2D(1, 16, 3),
-            conv2=L.Convolution2D(8, 8, 3),
-            conv3=L.Convolution2D(8, 8, 3),
+            # input (1, 28, 28)
+            conv0=L.Convolution2D(1, 16, 3, pad=p), # (28, 28) -> (14, 14)
+            conv1=L.Convolution2D(16, 8, 3, pad=p), # (14, 14) -> (7, 7)
+            conv2=L.Convolution2D(8, 8, 3, pad=p),  # (7, 7)   -> (4, 4)
             # decoder
-            conv4=L.Convolution2D(8, 8, 3),
-            conv5=L.Convolution2D(8, 8, 3),
-            conv6=L.Convolution2D(8, 16, 3),
+            conv3=L.Convolution2D(8, 8, 3, pad=p),  # (4, 4)   -> (8, 8)
+            conv4=L.Convolution2D(8, 8, 3, pad=p),  # (4, 4)   -> (8, 8)
+            conv5=L.Convolution2D(8, 16, 3, pad=q), # (8, 8)   -> (16)
+            conv6=L.Convolution2D(16, 1, 3, pad=p),
         )
         self.n_depth = 3
+        self.label = "conv%d"
+
+    def reshape_2d(self, x):
+        return x.reshape(-1, 1, self.n_in_square, self.n_in_square)
 
     def encode(self, x):
-        for n in range(1, self.n_depth + 1):
-            conv = self["conv%" % n]
-            x = F.max_pooling_2d(F.relu(conv(x)), 2)
+        x.data = self.reshape_2d(x.data)
+        # print(x.data.shape)
+        for n in range(self.n_depth):
+            # print("encoding conv%d" % n)
+            conv = self[self.label % n]
+            x = F.relu(conv(x))
+            # print(x.data.shape)
+            # print("encoding pool%d" % n)
+            x = F.max_pooling_2d(x, 2)
+            # print(x.data.shape)
         return x
 
-    def decode(self, z):
-        for n in range(self.n_depth + 1, self.n_depth * 2):
-            conv = self["conv%" % n]
-            z = F.unpooling_2d(F.relu(conv(z)), 2)
-        return F.sigmoid(self["conv%" % (self.n_depth * 2)](z))
+    def decode_bottleneck(self, z):
+        # print(z.data.shape)
+        last = self.n_depth * 2
+        for n in range(self.n_depth, last):
+            # print("decoding conv%d" % n)
+            conv = self[self.label % n]
+            z = F.relu(conv(z))
+            # print(z.data.shape)
+            # print("decoding pool%d" % n)
+            z = up_sampling_2d(z, 2)
+            # print(z.data.shape)
+        z = self[self.label % last](z)
+        # print(z.data.shape)
+        return z
 
 
 class VAE(AutoEncoder):
