@@ -6,16 +6,20 @@ import chainer
 from chainer import optimizers
 
 
-def learning_loop(xp, dataset, args, model, optimizer):
+def learning_loop(name, xp, dataset, args, model, optimizer):
     # Prepare dataset
     N = 60000
     train, test = dataset
     x_train, y_train = train._datasets
     x_test, y_test = test._datasets
     N_test = y_test.size
+    batchsize = args.batchsize
+    train_history = []
+    test_history = []
 
-    for epoch in range(1, n_epoch + 1):
+    for epoch in range(1, args.epoch + 1):
         print('epoch', epoch)
+        fmt = name + "/%s_" + "%05d" % epoch
 
         # training
         perm = numpy.random.permutation(N)
@@ -29,6 +33,7 @@ def learning_loop(xp, dataset, args, model, optimizer):
 
         print('train mean loss={}, mean reconstruction loss={}'
               .format(sum_loss / N, sum_rec_loss / N))
+        train_history.append(sum_rec_loss / N)
 
         # evaluation
         sum_loss = 0
@@ -44,7 +49,12 @@ def learning_loop(xp, dataset, args, model, optimizer):
 
         print('test  mean loss={}, mean reconstruction loss={}'
               .format(sum_loss / N_test, sum_rec_loss / N_test))
+        test_history.append(sum_rec_loss / N_test)
 
+        figures.execute(fmt, model.to_cpu(), dataset)
+        arguments.set_device(args, model)
+
+    return train_history, test_history
 
 if __name__ == '__main__':
     import net
@@ -55,25 +65,33 @@ if __name__ == '__main__':
     cupy.random.seed(0)
 
     args = arguments.load_args()
-    batchsize = args.batchsize
-    n_epoch = args.epoch
-    n_latent = args.dimz
-
-    # Prepare VAE model, defined in net.py
-    # model = net.VAE(784, n_latent, 500)
-    # model = net.DeepAutoEncoder(784, n_latent)
-    # model = net.SparseAutoEncoder(784, n_latent)
-    # model = net.SimpleAutoEncoder(784, n_latent)
-    model = net.ConvolutionalAutoEncoder()
-    xp = arguments.set_device(args, model)
-
-    # Setup optimizer
-    optimizer = optimizers.AdaDelta()
-    optimizer.setup(model)
-
     dataset = chainer.datasets.get_mnist()
-    t = (args, model, optimizer)
-    serialization.load(*t)
-    learning_loop(xp, dataset, *t)
-    serialization.save(*t)
-    figures.execute(model, dataset, n_latent)
+    n_latent = args.dimz
+    n_input = 784
+
+    models = {
+        "simple": net.SimpleAutoEncoder(n_input, n_latent),
+        "sparse": net.SparseAutoEncoder(n_input, n_latent),
+        "deep": net.DeepAutoEncoder(n_input, n_latent, n_depth=4),
+        "convolutional": net.ConvolutionalAutoEncoder(n_input),
+        "variational": net.VariationalAutoEncoder(784, n_latent, n_h=500)
+    }
+
+    histories = dict()
+    for name, model in models.items():
+        print("optimizing: %s autoencoder..." % name)
+        xp = arguments.set_device(args, model)
+        optimizer = optimizers.AdaDelta()
+        optimizer.setup(model)
+
+        t = (args, model, optimizer)
+        serialization.load(*t)
+        train, test = learning_loop(name, xp, dataset, *t)
+        histories[name + "_train"] = train
+        histories[name + "_test"] = test
+        serialization.save(name, *t)
+        # figures.execute(name + "", model, dataset)
+    import pickle
+    with open("histories.pkl", 'wb') as f:
+        pickle.dump(histories, f)
+    figures.plot_loss(histories)

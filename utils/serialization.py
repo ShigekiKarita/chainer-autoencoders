@@ -11,9 +11,9 @@ def load(args, model, optimizer):
         serializers.load_npz(args.resume, optimizer)
 
 
-def save(args, model, optimizer):
+def save(name, args, model, optimizer):
     # Save the model and the optimizer
-    root = "res/"
+    root = "res/" + name + "/"
     print('save the model')
     serializers.save_npz(root + 'mlp.model', model)
     print('save the optimizer')

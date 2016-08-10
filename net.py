@@ -28,11 +28,9 @@ class AutoEncoder(chainer.Chain):
     def get_loss_func(self, *args, **kwargs):
         def lf(x):
             y = self.bottleneck(x)
-            r = F.sigmoid(y)
-            self.rec_loss = F.mean_squared_error(r, x)
             self.loss = sigmoid_cross_entropy(y, x)
-            # FIXME: sigmoid is applied twice
-            # TODO: impl binary_cross_entropy for output of sigmoid
+            # self.rec_loss = F.mean_squared_error(F.sigmoid(y), x)
+            self.rec_loss = self.loss / y.data.shape[0]
             return self.loss
         return lf
 
@@ -58,9 +56,10 @@ class SparseAutoEncoder(SimpleAutoEncoder):
         from utils import functions
         def lf(x):
             y = self.bottleneck(x)
-            r = F.sigmoid(y)
-            self.rec_loss = F.mean_squared_error(r, x)
-            self.loss = sigmoid_cross_entropy(y, x) + functions.l1_norm(y) * l1
+            self.loss = sigmoid_cross_entropy(y, x)
+            # self.rec_loss = F.mean_squared_error(F.sigmoid(y), x)
+            self.rec_loss = self.loss / y.data.shape[0]
+            self.loss += functions.l1_norm(y) * l1
             return self.loss
         return lf
 
@@ -121,26 +120,6 @@ class DeepAutoEncoder(AutoEncoder):
 
 
 class ConvolutionalAutoEncoder(AutoEncoder):
-    """
-    Conv-AE structure noted in Keras's tutorial:
-
-    x = Convolution2D(16, 3, 3, activation='relu', border_mode='same')(input_img)
-    x = MaxPooling2D((2, 2), border_mode='same')(x)
-    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(x)
-    x = MaxPooling2D((2, 2), border_mode='same')(x)
-    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(x)
-    encoded = MaxPooling2D((2, 2), border_mode='same')(x)
-
-    # at this point the representation is (8, 4, 4) i.e. 128-dimensional
-
-    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(encoded)
-    x = UpSampling2D((2, 2))(x)
-    x = Convolution2D(8, 3, 3, activation='relu', border_mode='same')(x)
-    x = UpSampling2D((2, 2))(x)
-    x = Convolution2D(16, 3, 3, activation='relu')(x)
-    x = UpSampling2D((2, 2))(x)
-    decoded = Convolution2D(1, 3, 3, activation='sigmoid', border_mode='same')(x)
-    """
 
     def __init__(self, n_in=784):
         self.n_in_square = int(n_in**0.5)
@@ -193,10 +172,10 @@ class ConvolutionalAutoEncoder(AutoEncoder):
         return z
 
 
-class VAE(AutoEncoder):
+class VariationalAutoEncoder(AutoEncoder):
     """Variational AutoEncoder"""
     def __init__(self, n_in, n_latent, n_h):
-        super(VAE, self).__init__(
+        super(VariationalAutoEncoder, self).__init__(
             # encoder
             le1=L.Linear(n_in, n_h),
             le2_mu=L.Linear(n_h, n_latent),
@@ -206,6 +185,7 @@ class VAE(AutoEncoder):
             ld2=L.Linear(n_h, n_in),
         )
         self.loss = None
+        self.n_latent = n_latent
 
     def __call__(self, x, sigmoid=True):
         """AutoEncoder"""
