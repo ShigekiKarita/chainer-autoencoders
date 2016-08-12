@@ -11,11 +11,11 @@ def load_args():
                         help='Resume the optimization from snapshot')
     parser.add_argument('--gpu', '-g', default=0, type=int,
                         help='GPU ID (negative value indicates CPU)')
-    parser.add_argument('--epoch', '-e', default=100, type=int,
+    parser.add_argument('--epoch', '-e', default=20, type=int,
                         help='number of epochs to learn')
     parser.add_argument('--dimz', '-z', default=32, type=int,
                         help='dimention of encoded vector')
-    parser.add_argument('--batchsize', '-b', type=int, default=256,
+    parser.add_argument('--batchsize', '-b', type=int, default=2048,
                         help='learning minibatch size')
     args = parser.parse_args()
 

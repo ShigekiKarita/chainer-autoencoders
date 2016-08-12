@@ -13,6 +13,8 @@ def save_images(x, filename):
     for ai, xi in zip(ax.flatten(), x):
         ai.imshow(xi.reshape(28, 28)) # interpolation="none")
 
+    fig.suptitle(filename, fontsize="x-large")
+
     filename = "res/" + filename
     d = path.dirname(filename)
     if not path.exists(d):
@@ -60,5 +62,5 @@ def plot_loss(histories):
     pylab.yscale("log")
     pylab.legend()
     pylab.draw()
-    pylab.save("loss.pdf")
+    pylab.savefig("loss.pdf")
     pylab.show()

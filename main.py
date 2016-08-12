@@ -5,6 +5,8 @@ import numpy
 import chainer
 from chainer import optimizers
 
+from utils import arguments, figures, serialization
+
 
 def learning_loop(name, xp, dataset, args, model, optimizer):
     # Prepare dataset
@@ -19,7 +21,6 @@ def learning_loop(name, xp, dataset, args, model, optimizer):
 
     for epoch in range(1, args.epoch + 1):
         print('epoch', epoch)
-        fmt = name + "/%s_" + "%05d" % epoch
 
         # training
         perm = numpy.random.permutation(N)
@@ -51,15 +52,17 @@ def learning_loop(name, xp, dataset, args, model, optimizer):
               .format(sum_loss / N_test, sum_rec_loss / N_test))
         test_history.append(sum_rec_loss / N_test)
 
+        # plot reconstructed
+        fmt = name + "/%s_" + "%05d" % epoch
         figures.execute(fmt, model.to_cpu(), dataset)
         arguments.set_device(args, model)
 
     return train_history, test_history
 
-if __name__ == '__main__':
+
+def main():
     import net
     import cupy.random
-    from utils import arguments, figures, serialization
 
     numpy.random.seed(0)
     cupy.random.seed(0)
@@ -95,3 +98,7 @@ if __name__ == '__main__':
     with open("histories.pkl", 'wb') as f:
         pickle.dump(histories, f)
     figures.plot_loss(histories)
+
+
+if __name__ == '__main__':
+    main()
