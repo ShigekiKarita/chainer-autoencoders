@@ -1,7 +1,10 @@
-# Variational AutoEncoder
+# chainer-autoencoders
 
-This is a sample implementation of variational autoencoder.
+re-implemtation of [https://blog.keras.io/building-autoencoders-in-keras.html](https://blog.keras.io/building-autoencoders-in-keras.html)
 
-This method is proposed by Kingma and Welling, Auto-Encoding Variational Bayes, 2014.
+## requirements
 
-If you want to run this example on the N-th GPU, pass `--gpu=N` to the script.
++ chainer >= 1.12.0
++ (to plot) matplotlib, scipy, imageio
+
+
