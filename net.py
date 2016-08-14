@@ -8,7 +8,7 @@ from chainer.functions.loss.vae import gaussian_kl_divergence
 from utils.functions import sigmoid_cross_entropy, up_sampling_2d
 
 
-class AutoEncoder(chainer.Chain):
+class AutoEncoderBase(chainer.Chain):
 
     def encode(self, x):
         pass
@@ -35,7 +35,7 @@ class AutoEncoder(chainer.Chain):
         return lf
 
 
-class SimpleAutoEncoder(AutoEncoder):
+class SimpleAutoEncoder(AutoEncoderBase):
 
     def __init__(self, n_in, n_units):
         super(SimpleAutoEncoder, self).__init__(
@@ -63,63 +63,65 @@ class SparseAutoEncoder(SimpleAutoEncoder):
             return self.loss
         return lf
 
-            
-class DeepAutoEncoder(AutoEncoder):
 
-    def __init__(self, n_in, n_units=32, n_depth=3):
+class DeepAutoEncoder(AutoEncoderBase):
+
+    def __init__(self, n_in, n_depth=1, n_units=None):
         super(DeepAutoEncoder, self).__init__()
         self.n_in = n_in
         self.n_units = n_units
-        self.n_depth = n_depth
-        self.dims = []
-        self.label = "layer%d"
-        self.init_layers()
-
-    def calc_layer_dims(self):
-        """
-        :return: input dimensions of encoder-decoder layers
-        >>> dae = DeepAutoEncoder(784, 32, 3)
-        >>> dae.dims
-        [784, 128, 64, 32, 64, 128, 784]
-        """
-        ns = []
-        for n in reversed(range(1, self.n_depth)):
-            ns.append(self.n_units * (2 ** n))
-        ns = [self.n_in] + ns
-        ns = ns + [self.n_units] + list(reversed(ns))
-        self.dims = ns
-        return ns
-
-    def init_layers(self):
-        """
-        :return: Linear layers from self.dims
-        >>> dae = DeepAutoEncoder(784, 32, 2)
-        >>> [p.data.shape for p in dae.params()]
-        [(64, 784), (64,), (32, 64), (32,), (64, 32), (64,), (784, 64), (784,)]
-        """
-        ns = self.calc_layer_dims()
-        for i in range(len(ns)-1):
-            label = self.label % i
-            param = L.Linear(ns[i], ns[i+1])
-            self.add_link(label, param)
-
-    def call_layers(self, x, a, b=-1):
-        if b == -1:
-            b = a + 1
-        for n in range(a, b):
-            x = F.relu(self[self.label % n](x))
-        return x
+        self.encode_label = "encode%d"
+        self.decode_label = "decode%d"
+        self.n_depth = 0
+        self._init_layers(n_depth)
 
     def encode(self, x):
-        return self.call_layers(x, 0, self.n_depth)
+        for n in range(self.n_depth):
+            x = F.relu(self[self.encode_label % n](x))
+        return x
 
     def decode_bottleneck(self, z):
-        last = self.n_depth * 2 - 1
-        z = self.call_layers(z, self.n_depth, last)
-        return self.call_layers(z, last)
+        d = self.n_depth
+        for n in reversed(range(1, d)):
+            z = F.relu(self[self.decode_label % n](z))
+        return self[self.decode_label % 0](z)
+
+    def _init_layers(self, n_depth):
+        """
+        >>> [p.data.shape for p in DeepAutoEncoder(784, n_depth=2, n_units=32).params()]
+        [(64, 784), (64,), (784, 64), (784,), (32, 64), (32,), (64, 32), (64,)]
+        >>> [p.data.shape for p in DeepAutoEncoder(784, n_depth=2).params()]
+        [(392, 784), (392,), (784, 392), (784,), (196, 392), (196,), (392, 196), (392,)]
+        """
+        first = None
+        if self.n_units:
+            first = self.n_units * (2 ** (n_depth - 1))
+        self.add_layer(first)
+        for n in range(1, n_depth):
+            self.add_layer()
+
+    def encoded_size(self):
+        """
+        >>> DeepAutoEncoder(3, n_units=7).encoded_size()
+        7
+        >>> DeepAutoEncoder(9, n_depth=2).encoded_size()
+        2
+        """
+        if self.n_depth == 0:
+            return self.n_in
+        last = self.n_depth - 1
+        encode_last = self[self.encode_label % last]
+        return encode_last.b.data.size
+
+    def add_layer(self, n_out=None):
+        i = self.encoded_size()
+        o = i // 2 if n_out is None else n_out
+        self.add_link(self.encode_label % self.n_depth, F.Linear(i, o))
+        self.add_link(self.decode_label % self.n_depth, F.Linear(o, i))
+        self.n_depth += 1
 
 
-class ConvolutionalAutoEncoder(AutoEncoder):
+class ConvolutionalAutoEncoder(AutoEncoderBase):
 
     def __init__(self, n_in=784):
         self.n_in_square = int(n_in**0.5)
@@ -172,7 +174,7 @@ class ConvolutionalAutoEncoder(AutoEncoder):
         return z
 
 
-class VariationalAutoEncoder(AutoEncoder):
+class VariationalAutoEncoder(AutoEncoderBase):
     """Variational AutoEncoder"""
     def __init__(self, n_in, n_latent, n_h):
         super(VariationalAutoEncoder, self).__init__(

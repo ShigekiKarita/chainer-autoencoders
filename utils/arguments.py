@@ -5,7 +5,7 @@ import numpy as np
 
 def load_args():
     parser = argparse.ArgumentParser(description='Chainer example: MNIST')
-    parser.add_argument('--initmodel', '-m', default='',
+    parser.add_argument('--initmodel', '-i', default='',
                         help='Initialize the model from given file')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the optimization from snapshot')
@@ -17,6 +17,7 @@ def load_args():
                         help='dimention of encoded vector')
     parser.add_argument('--batchsize', '-b', type=int, default=2048,
                         help='learning minibatch size')
+    parser.add_argument('--model', '-m', type=str, default="any")
     args = parser.parse_args()
 
     print('GPU: {}'.format(args.gpu))

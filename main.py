@@ -5,6 +5,7 @@ import numpy
 import chainer
 from chainer import optimizers
 
+import net
 from utils import arguments, figures, serialization
 
 
@@ -57,12 +58,17 @@ def learning_loop(name, xp, dataset, args, model, optimizer):
         figures.execute(fmt, model.to_cpu(), dataset)
         arguments.set_device(args, model)
 
+        if epoch % 4 == 0 and isinstance(model, net.DeepAutoEncoder):
+            print("adding a layer")
+            model.add_layer()
+            arguments.set_device(args, model)
+
     return train_history, test_history
 
 
 def main():
-    import net
     import cupy.random
+    from collections import OrderedDict
 
     numpy.random.seed(0)
     cupy.random.seed(0)
@@ -72,15 +78,19 @@ def main():
     n_latent = args.dimz
     n_input = 784
 
-    models = {
+    models = OrderedDict({
         "simple": net.SimpleAutoEncoder(n_input, n_latent),
         "sparse": net.SparseAutoEncoder(n_input, n_latent),
-        "deep": net.DeepAutoEncoder(n_input, n_latent, n_depth=4),
+        "deep": net.DeepAutoEncoder(n_input),
         "convolutional": net.ConvolutionalAutoEncoder(n_input),
         "variational": net.VariationalAutoEncoder(784, n_latent, n_h=500)
-    }
+    })
 
-    histories = dict()
+    m = args.model
+    if m != "any":
+        models = {m: models[m]}
+
+    histories = OrderedDict()
     for name, model in models.items():
         print("optimizing: %s autoencoder..." % name)
         xp = arguments.set_device(args, model)
@@ -93,11 +103,11 @@ def main():
         histories[name + "_train"] = train
         histories[name + "_test"] = test
         serialization.save(name, *t)
-        # figures.execute(name + "", model, dataset)
+
     import pickle
-    with open("histories.pkl", 'wb') as f:
+    with open("res/histories.pkl", 'wb') as f:
         pickle.dump(histories, f)
-    figures.plot_loss(histories)
+    figures.main(histories)
 
 
 if __name__ == '__main__':
